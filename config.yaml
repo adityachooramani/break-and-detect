@@ -1,0 +1,8 @@
+app:
+  debug: false          # NEVER true outside local poking — leaks stack traces (misconfig vuln later flips this)
+  host: "127.0.0.1"
+  port: 5000
+
+security:
+  allowed_fetch_schemes: ["https"]   # /fetch may only reach https URLs
+  block_private_networks: true       # /fetch may not reach internal/loopback IPs (SSRF defense)
