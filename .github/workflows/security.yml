@@ -1,0 +1,284 @@
+name: security
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+  security-events: write
+
+env:
+  REPORT_DIR: reports
+  IMAGE_NAME: break-and-detect
+  APP_PORT: "5000"
+
+jobs:
+  static:
+    name: STATIC
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install source-scanning tools
+        run: python -m pip install --upgrade pip bandit semgrep checkov
+
+      - name: Prepare report directory
+        run: mkdir -p "${REPORT_DIR}"
+
+      - name: Gitleaks secrets scan
+        # STATIC: secrets live in the repository history/files, so the app does not need to run.
+        continue-on-error: true
+        run: |
+          docker run --rm -v "$PWD:/repo" -w /repo zricethezav/gitleaks:v8.21.2 detect \
+            --source /repo \
+            --no-banner \
+            --exclude-path app.db \
+            --report-format sarif \
+            --report-path "${REPORT_DIR}/gitleaks.sarif"
+
+      - name: Bandit SAST
+        # STATIC: Bandit inspects Python source for insecure patterns without starting Flask.
+        continue-on-error: true
+        run: |
+          bandit -r . -x .git,venv,__pycache__,app.db -f sarif -o "${REPORT_DIR}/bandit.sarif"
+
+      - name: Semgrep SAST
+        # STATIC: Semgrep reasons over code at rest, which makes it a source-level control.
+        continue-on-error: true
+        run: |
+          semgrep scan --config p/default --sarif --output "${REPORT_DIR}/semgrep.sarif" \
+            --exclude .git --exclude venv --exclude __pycache__ --exclude app.db .
+
+      - name: Trivy filesystem scan
+        # STATIC: dependency CVEs can be found from the checked-out files without a live service.
+        continue-on-error: true
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          scanners: vuln
+          format: sarif
+          output: ${{ env.REPORT_DIR }}/trivy-fs.sarif
+          ignore-unfixed: true
+
+      - name: Build image for static image scan
+        # STATIC: the image artifact can be scanned offline as soon as it is built; no container starts here.
+        run: docker build -t "${IMAGE_NAME}:${GITHUB_SHA}" .
+
+      - name: Trivy image scan
+        # STATIC: image CVEs are a property of the built artifact, not of runtime behavior.
+        continue-on-error: true
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: ${{ env.IMAGE_NAME }}:${{ github.sha }}
+          scanners: vuln
+          format: sarif
+          output: ${{ env.REPORT_DIR }}/trivy-image.sarif
+          ignore-unfixed: true
+
+      - name: Checkov IaC scan
+        # STATIC: Dockerfile and workflow policy are configuration-as-code, so they can be checked at rest.
+        continue-on-error: true
+        run: |
+          checkov -d . \
+            --framework dockerfile,github_actions \
+            --skip-path app.db \
+            --output sarif \
+            --output-file-path "${REPORT_DIR}"
+
+      - name: Upload Gitleaks SARIF
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: ${{ env.REPORT_DIR }}/gitleaks.sarif
+          category: gitleaks
+
+      - name: Upload Bandit SARIF
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: ${{ env.REPORT_DIR }}/bandit.sarif
+          category: bandit
+
+      - name: Upload Semgrep SARIF
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: ${{ env.REPORT_DIR }}/semgrep.sarif
+          category: semgrep
+
+      - name: Upload Trivy filesystem SARIF
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: ${{ env.REPORT_DIR }}/trivy-fs.sarif
+          category: trivy-fs
+
+      - name: Upload Trivy image SARIF
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: ${{ env.REPORT_DIR }}/trivy-image.sarif
+          category: trivy-image
+
+      - name: Upload Checkov SARIF
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: ${{ env.REPORT_DIR }}/results_sarif.sarif
+          category: checkov
+
+      - name: Upload static scan reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: static-scan-reports
+          path: ${{ env.REPORT_DIR }}
+
+  dynamic:
+    name: DYNAMIC
+    runs-on: ubuntu-latest
+    needs: static
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Build runtime image
+        run: docker build -t "${IMAGE_NAME}:${GITHUB_SHA}" .
+
+      - name: Start application container
+        run: |
+          docker run -d --rm \
+            --name app-under-test \
+            -p 127.0.0.1:${APP_PORT}:5000 \
+            "${IMAGE_NAME}:${GITHUB_SHA}"
+
+      - name: Wait for the service to become reachable
+        # DYNAMIC: ZAP needs a live HTTP service, so we wait for the container before scanning.
+        run: |
+          for attempt in $(seq 1 30); do
+            if curl -fsS "http://127.0.0.1:${APP_PORT}/greet?name=ready" >/dev/null; then
+              exit 0
+            fi
+            sleep 2
+          done
+
+          docker logs app-under-test
+          exit 1
+
+      - name: OWASP ZAP baseline scan
+        # DYNAMIC: ZAP probes runtime responses, headers, and reflected behavior that source scanners cannot see.
+        continue-on-error: true
+        run: |
+          mkdir -p "${REPORT_DIR}"
+          docker run --rm --network host ghcr.io/zaproxy/zaproxy:stable zap-baseline.py \
+            -t "http://127.0.0.1:${APP_PORT}" \
+            -r "${REPORT_DIR}/zap.html" \
+            -J "${REPORT_DIR}/zap.json" \
+            -w "${REPORT_DIR}/zap.md" \
+            -m 5
+
+      - name: Stop application container
+        if: always()
+        run: docker rm -f app-under-test
+
+      - name: Upload dynamic scan reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dynamic-scan-reports
+          path: ${{ env.REPORT_DIR }}
+
+  gate:
+    name: SECURITY GATE
+    runs-on: ubuntu-latest
+    needs: [static, dynamic]
+    if: always()
+    steps:
+      - name: Download scan artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: "*-scan-reports"
+          merge-multiple: true
+          path: combined-reports
+
+      - name: Evaluate high and critical findings
+        id: gate
+        run: |
+          python3 <<'PY'
+          import json
+          from pathlib import Path
+
+          report_root = Path("combined-reports")
+          consolidated = Path("consolidated-security-report.md")
+
+          rows = []
+          failing = []
+
+          def sarif_highs(path: Path) -> int:
+              data = json.loads(path.read_text())
+              return sum(
+                  1
+                  for run in data.get("runs", [])
+                  for result in run.get("results", [])
+                  if result.get("level") == "error"
+              )
+
+          def zap_highs(path: Path) -> int:
+              data = json.loads(path.read_text())
+              count = 0
+              for site in data.get("site", []):
+                  for alert in site.get("alerts", []):
+                      risk = str(alert.get("riskdesc", alert.get("risk", ""))).lower()
+                      if risk.startswith("high"):
+                          count += 1
+              return count
+
+          for path in sorted(report_root.rglob("*.sarif")):
+              high_count = sarif_highs(path)
+              rows.append((path.name, high_count, "FAIL" if high_count else "PASS"))
+              if high_count:
+                  failing.append(f"{path.name}: {high_count} error-level result(s)")
+
+          zap_json = report_root / "zap.json"
+          if zap_json.exists():
+              high_count = zap_highs(zap_json)
+              rows.append((zap_json.name, high_count, "FAIL" if high_count else "PASS"))
+              if high_count:
+                  failing.append(f"{zap_json.name}: {high_count} high-risk alert(s)")
+
+          lines = [
+              "# Consolidated Security Report",
+              "",
+              "| Report | High/Critical count | Result |",
+              "| --- | ---: | --- |",
+          ]
+          for name, count, result in rows:
+              lines.append(f"| {name} | {count} | {result} |")
+
+          lines.append("")
+          if failing:
+              lines.append("The gate failed on the following high/critical findings:")
+              lines.extend(f"- {item}" for item in failing)
+          else:
+              lines.append("No high/critical findings were detected by the uploaded reports.")
+
+          consolidated.write_text("\n".join(lines) + "\n")
+
+          if failing:
+              raise SystemExit(1)
+          PY
+
+      - name: Upload consolidated report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: consolidated-security-report
+          path: consolidated-security-report.md
