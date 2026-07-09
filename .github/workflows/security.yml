@@ -30,8 +30,11 @@ jobs:
           docker run --rm -v "${PWD}:/repo" ghcr.io/gitleaks/gitleaks:latest \
             detect --source=/repo --no-banner \
             --report-format=sarif \
-            --report-path="/repo/${REPORT_DIR}/gitleaks.sarif" \
-            --exit-code=0 || true
+            --report-path="/repo/${REPORT_DIR}/gitleaks.sarif"
+          rc=$?
+          if [ "$rc" -gt 1 ]; then
+            exit "$rc"
+          fi
 
       - name: Upload Gitleaks SARIF
         if: always()
@@ -68,7 +71,12 @@ jobs:
         run: mkdir -p "${REPORT_DIR}"
 
       - name: Run Bandit
-        run: bandit -r . -x .git,venv,.venv,__pycache__,app.db -f sarif -o "${REPORT_DIR}/bandit.sarif" --exit-zero
+        run: |
+          bandit -r . -x .git,venv,.venv,__pycache__,app.db -f sarif -o "${REPORT_DIR}/bandit.sarif"
+          rc=$?
+          if [ "$rc" -gt 1 ]; then
+            exit "$rc"
+          fi
 
       - name: Upload Bandit SARIF
         if: always()
@@ -105,18 +113,21 @@ jobs:
         run: mkdir -p "${REPORT_DIR}"
 
       - name: Run Semgrep
-        run: >-
-          semgrep scan
-          --config p/default
-          --sarif
-          --output "${REPORT_DIR}/semgrep.sarif"
-          --exclude .git
-          --exclude venv
-          --exclude .venv
-          --exclude __pycache__
-          --exclude app.db
-          --error
-          || true
+        run: |
+          semgrep scan \
+            --config p/default \
+            --sarif \
+            --output "${REPORT_DIR}/semgrep.sarif" \
+            --exclude .git \
+            --exclude venv \
+            --exclude .venv \
+            --exclude __pycache__ \
+            --exclude app.db \
+            --error
+          rc=$?
+          if [ "$rc" -gt 1 ]; then
+            exit "$rc"
+          fi
 
       - name: Upload Semgrep SARIF
         if: always()
@@ -145,19 +156,25 @@ jobs:
         run: mkdir -p "${REPORT_DIR}"
 
       - name: Run Trivy filesystem scan
-        uses: aquasecurity/trivy-action@v0.36.0
+        run: |
+          docker run --rm \
+            -v "${PWD}:/work" \
+            -e GITHUB_TOKEN="${GITHUB_TOKEN}" \
+            -e TRIVY_DB_REPOSITORY="ghcr.io/aquasecurity/trivy-db" \
+            aquasecurity/trivy:0.36.0 fs \
+            --severity HIGH,CRITICAL \
+            --ignore-unfixed \
+            --scanners vuln \
+            --format sarif \
+            --output "/work/${REPORT_DIR}/trivy-fs.sarif" \
+            --exit-code 1 \
+            /work
+          rc=$?
+          if [ "$rc" -gt 1 ]; then
+            exit "$rc"
+          fi
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TRIVY_DB_REPOSITORY: ghcr.io/aquasecurity/trivy-db
-        with:
-          scan-type: fs
-          scan-ref: .
-          scanners: vuln
-          severity: HIGH,CRITICAL
-          format: sarif
-          output: ${{ env.REPORT_DIR }}/trivy-fs.sarif
-          ignore-unfixed: true
-          exit-code: "0"
 
       - name: Upload Trivy filesystem SARIF
         if: always()
@@ -189,18 +206,26 @@ jobs:
         run: docker build -t "${IMAGE_NAME}:${GITHUB_SHA}" .
 
       - name: Run Trivy image scan
-        uses: aquasecurity/trivy-action@v0.36.0
+        run: |
+          docker run --rm \
+            -v /var/run/docker.sock:/var/run/docker.sock \
+            -v "${PWD}:/work" \
+            -e GITHUB_TOKEN="${GITHUB_TOKEN}" \
+            -e TRIVY_DB_REPOSITORY="ghcr.io/aquasecurity/trivy-db" \
+            aquasecurity/trivy:0.36.0 image \
+            --severity HIGH,CRITICAL \
+            --ignore-unfixed \
+            --scanners vuln \
+            --format sarif \
+            --output "/work/${REPORT_DIR}/trivy-image.sarif" \
+            --exit-code 1 \
+            "${IMAGE_NAME}:${GITHUB_SHA}"
+          rc=$?
+          if [ "$rc" -gt 1 ]; then
+            exit "$rc"
+          fi
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TRIVY_DB_REPOSITORY: ghcr.io/aquasecurity/trivy-db
-        with:
-          image-ref: ${{ env.IMAGE_NAME }}:${{ github.sha }}
-          scanners: vuln
-          severity: HIGH,CRITICAL
-          format: sarif
-          output: ${{ env.REPORT_DIR }}/trivy-image.sarif
-          ignore-unfixed: true
-          exit-code: "0"
 
       - name: Upload Trivy image SARIF
         if: always()
