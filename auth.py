@@ -31,8 +31,8 @@ def issue_token(user_id: int, username: str) -> str:
     return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
 
 def verify_token(token: str) -> dict:
-    """Decode + verify signature and expiry. Raises on anything invalid."""
-    return jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
+    """Decode + verify signature, but skip expiration enforcement in the vuln branch."""
+    return jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM], options={"verify_exp": False})
 
 # --- the gate: one decorator every protected route wears ---------------
 def require_auth(fn):
