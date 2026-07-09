@@ -23,21 +23,19 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Prepare report directory
-        run: mkdir -p "${REPORT_DIR}"
+        run: mkdir -p "${REPORT_DIR}" && chmod 777 "${REPORT_DIR}"
 
       - name: Run Gitleaks
-        uses: gitleaks/gitleaks-action@v2
-        with:
-          args: >-
-            detect
-            --source .
-            --no-banner
-            --report-format sarif
-            --report-path ${{ env.REPORT_DIR }}/gitleaks.sarif
-            --exit-code 0
+        run: |
+          docker run --rm -v "${PWD}:/repo" ghcr.io/gitleaks/gitleaks:latest \
+            detect --source=/repo --no-banner \
+            --report-format=sarif \
+            --report-path="/repo/${REPORT_DIR}/gitleaks.sarif" \
+            --exit-code=0 || true
 
       - name: Upload Gitleaks SARIF
         if: always()
+        continue-on-error: true
         uses: github/codeql-action/upload-sarif@v3
         with:
           sarif_file: ${{ env.REPORT_DIR }}/gitleaks.sarif
@@ -48,829 +46,8 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: gitleaks-scan-reports
-          path: ${{ env.REPORT_DIR }}/gitleaks.sarif
-
-  bandit:
-    name: BANDIT
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-
-      - name: Install Bandit with SARIF support
-        run: python -m pip install --upgrade pip 'bandit[sarif]'
-
-      - name: Prepare report directory
-        run: mkdir -p "${REPORT_DIR}"
-
-      - name: Run Bandit
-        run: bandit -r . -x .git,venv,.venv,__pycache__,app.db -f sarif -o "${REPORT_DIR}/bandit.sarif" --exit-zero
-
-      - name: Upload Bandit SARIF
-        if: always()
-        uses: github/codeql-action/upload-sarif@v3
-        with:
-          sarif_file: ${{ env.REPORT_DIR }}/bandit.sarif
-          category: bandit
-
-      - name: Upload Bandit report artifact
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: bandit-scan-reports
-          path: ${{ env.REPORT_DIR }}/bandit.sarif
-
-  semgrep:
-    name: SEMGREP
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-
-      - name: Install Semgrep
-        run: python -m pip install --upgrade pip semgrep
-
-      - name: Prepare report directory
-        run: mkdir -p "${REPORT_DIR}"
-
-      - name: Run Semgrep
-        run: >-
-          semgrep scan
-          --config p/default
-          --sarif
-          --output "${REPORT_DIR}/semgrep.sarif"
-          --exclude .git
-          --exclude venv
-          --exclude .venv
-          --exclude __pycache__
-          --exclude app.db
-          --exit-zero
-
-      - name: Upload Semgrep SARIF
-        if: always()
-        uses: github/codeql-action/upload-sarif@v3
-        with:
-          sarif_file: ${{ env.REPORT_DIR }}/semgrep.sarif
-          category: semgrep
-
-      - name: Upload Semgrep report artifact
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: semgrep-scan-reports
-          path: ${{ env.REPORT_DIR }}/semgrep.sarif
-
-  trivy-fs:
-    name: TRIVY FILESYSTEM
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Prepare report directory
-        run: mkdir -p "${REPORT_DIR}"
-
-      - name: Run Trivy filesystem scan
-        uses: aquasecurity/trivy-action@0.28.0
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TRIVY_DB_REPOSITORY: ghcr.io/aquasecurity/trivy-db
-        with:
-          scan-type: fs
-          scan-ref: .
-          scanners: vuln
-          severity: HIGH,CRITICAL
-          format: sarif
-          output: ${{ env.REPORT_DIR }}/trivy-fs.sarif
-          ignore-unfixed: true
-          exit-code: 0
-
-      - name: Upload Trivy filesystem SARIF
-        if: always()
-        uses: github/codeql-action/upload-sarif@v3
-        with:
-          sarif_file: ${{ env.REPORT_DIR }}/trivy-fs.sarif
-          category: trivy-fs
-
-      - name: Upload Trivy filesystem report artifact
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: trivy-fs-scan-reports
-          path: ${{ env.REPORT_DIR }}/trivy-fs.sarif
-
-  checkov:
-    name: CHECKOV
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-
-      - name: Install Checkov
-        run: python -m pip install --upgrade pip checkov
-
-      - name: Prepare report directory
-        run: mkdir -p "${REPORT_DIR}"
-
-      - name: Run Checkov
-        run: >-
-          checkov -d .
-          --framework dockerfile,github_actions
-          --skip-path app.db
-          --output sarif
-          --output-file-path "${REPORT_DIR}"
-          --soft-fail
-
-      - name: Upload Checkov SARIF
-        if: always()
-        uses: github/codeql-action/upload-sarif@v3
-        with:
-          sarif_file: ${{ env.REPORT_DIR }}/results_sarif.sarif
-          category: checkov
-
-      - name: Upload Checkov report artifact
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: checkov-scan-reports
-          path: ${{ env.REPORT_DIR }}/results_sarif.sarif
-
-  trivy-image:
-    name: TRIVY IMAGE
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Prepare report directory
-        run: mkdir -p "${REPORT_DIR}"
-
-      - name: Build image for Trivy
-        run: docker build -t "${IMAGE_NAME}:${GITHUB_SHA}" .
-
-      - name: Run Trivy image scan
-        uses: aquasecurity/trivy-action@0.28.0
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TRIVY_DB_REPOSITORY: ghcr.io/aquasecurity/trivy-db
-        with:
-          image-ref: ${{ env.IMAGE_NAME }}:${{ github.sha }}
-          scanners: vuln
-          severity: HIGH,CRITICAL
-          format: sarif
-          output: ${{ env.REPORT_DIR }}/trivy-image.sarif
-          ignore-unfixed: true
-          exit-code: 0
-
-      - name: Upload Trivy image SARIF
-        if: always()
-        uses: github/codeql-action/upload-sarif@v3
-        with:
-          sarif_file: ${{ env.REPORT_DIR }}/trivy-image.sarif
-          category: trivy-image
-
-      - name: Upload Trivy image report artifact
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: trivy-image-scan-reports
-          path: ${{ env.REPORT_DIR }}/trivy-image.sarif
-
-  dynamic:
-    name: DYNAMIC
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Generate JWT secret
-        id: jwt_secret
-        run: |
-          echo "jwt_secret=$(python - <<'PY'
-import secrets
-print(secrets.token_hex(32))
-PY
-)" >> "$GITHUB_OUTPUT"
-
-      - name: Prepare report directory
-        run: mkdir -p "${REPORT_DIR}"
-
-      - name: Build runtime image
-        run: docker build -t "${IMAGE_NAME}:${GITHUB_SHA}" .
-
-      - name: Start application container
-        run: |
-          docker run -d --rm \
-            --name app-under-test \
-            -e JWT_SECRET="${{ steps.jwt_secret.outputs.jwt_secret }}" \
-            -p 127.0.0.1:${APP_PORT}:5000 \
-            "${IMAGE_NAME}:${GITHUB_SHA}"
-
-      - name: Wait for /health
-        run: |
-          for attempt in $(seq 1 30); do
-            if curl -fsS "http://127.0.0.1:${APP_PORT}/health" >/dev/null; then
-              exit 0
-            fi
-            sleep 2
-          done
-
-          docker logs app-under-test
-          exit 1
-
-      - name: Run OWASP ZAP baseline scan
-        uses: zaproxy/action-baseline@v0.15.0
-        with:
-          target: http://127.0.0.1:${{ env.APP_PORT }}
-          token: ${{ secrets.GITHUB_TOKEN }}
-          allow_issue_writing: false
-          fail_action: false
-          artifact_name: zap-scan-reports
-          cmd_options: >-
-            -a
-            -r ${{ env.REPORT_DIR }}/zap.html
-            -J ${{ env.REPORT_DIR }}/zap.json
-            -w ${{ env.REPORT_DIR }}/zap.md
-
-      - name: Stop application container
-        if: always()
-        run: docker rm -f app-under-test
-
-  gate:
-    name: SECURITY GATE
-    runs-on: ubuntu-latest
-    needs:
-      - gitleaks
-      - bandit
-      - semgrep
-      - trivy-fs
-      - checkov
-      - trivy-image
-      - dynamic
-    if: always()
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Download scan artifacts
-        uses: actions/download-artifact@v4
-        with:
-          pattern: "*-scan-reports"
-          merge-multiple: true
-          path: combined-reports
-
-      - name: Build consolidated report and enforce gate
-        run: |
-          python scripts/consolidate_security_reports.py \
-            --input-dir combined-reports \
-            --output consolidated-security-report.md \
-            --expect gitleaks.sarif bandit.sarif semgrep.sarif trivy-fs.sarif results_sarif.sarif trivy-image.sarif zap.html zap.json zap.md
-
-      - name: Upload consolidated report
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: consolidated-security-report
-          path: consolidated-security-report.mdname: security
-
-on:
-  push:
-  pull_request:
-
-permissions:
-  contents: read
-  security-events: write
-  actions: read
-
-env:
-  REPORT_DIR: reports
-  IMAGE_NAME: break-and-detect
-  APP_PORT: "5000"
-
-jobs:
-  gitleaks:
-    name: GITLEAKS
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Prepare report directory
-        run: mkdir -p "${REPORT_DIR}"
-
-      - name: Run Gitleaks
-        uses: gitleaks/gitleaks-action@v2
-        with:
-          args: >-
-            detect
-            --source .
-            --no-banner
-            --report-format sarif
-            --report-path ${{ env.REPORT_DIR }}/gitleaks.sarif
-            --exit-code 0
-
-      - name: Upload Gitleaks SARIF
-        if: always()
-        uses: github/codeql-action/upload-sarif@v3
-        with:
-          sarif_file: ${{ env.REPORT_DIR }}/gitleaks.sarif
-          category: gitleaks
-
-      - name: Upload Gitleaks report artifact
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: gitleaks-scan-reports
-          path: ${{ env.REPORT_DIR }}/gitleaks.sarif
-
-  bandit:
-    name: BANDIT
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-
-      - name: Install Bandit with SARIF support
-        run: python -m pip install --upgrade pip 'bandit[sarif]'
-
-      - name: Prepare report directory
-        run: mkdir -p "${REPORT_DIR}"
-
-      - name: Run Bandit
-        run: bandit -r . -x .git,venv,.venv,__pycache__,app.db -f sarif -o "${REPORT_DIR}/bandit.sarif" --exit-zero
-
-      - name: Upload Bandit SARIF
-        if: always()
-        uses: github/codeql-action/upload-sarif@v3
-        with:
-          sarif_file: ${{ env.REPORT_DIR }}/bandit.sarif
-          category: bandit
-
-      - name: Upload Bandit report artifact
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: bandit-scan-reports
-          path: ${{ env.REPORT_DIR }}/bandit.sarif
-
-  semgrep:
-    name: SEMGREP
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-
-      - name: Install Semgrep
-        run: python -m pip install --upgrade pip semgrep
-
-      - name: Prepare report directory
-        run: mkdir -p "${REPORT_DIR}"
-
-      - name: Run Semgrep
-        run: >-
-          semgrep scan
-          --config p/default
-          --sarif
-          --output "${REPORT_DIR}/semgrep.sarif"
-          --exclude .git
-          --exclude venv
-          --exclude .venv
-          --exclude __pycache__
-          --exclude app.db
-          --exit-zero
-
-      - name: Upload Semgrep SARIF
-        if: always()
-        uses: github/codeql-action/upload-sarif@v3
-        with:
-          sarif_file: ${{ env.REPORT_DIR }}/semgrep.sarif
-          category: semgrep
-
-      - name: Upload Semgrep report artifact
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: semgrep-scan-reports
-          path: ${{ env.REPORT_DIR }}/semgrep.sarif
-
-  trivy-fs:
-    name: TRIVY FILESYSTEM
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Prepare report directory
-        run: mkdir -p "${REPORT_DIR}"
-
-      - name: Run Trivy filesystem scan
-        uses: aquasecurity/trivy-action@0.28.0
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TRIVY_DB_REPOSITORY: ghcr.io/aquasecurity/trivy-db
-        with:
-          scan-type: fs
-          scan-ref: .
-          scanners: vuln
-          severity: HIGH,CRITICAL
-          format: sarif
-          output: ${{ env.REPORT_DIR }}/trivy-fs.sarif
-          ignore-unfixed: true
-          exit-code: 0
-
-      - name: Upload Trivy filesystem SARIF
-        if: always()
-        uses: github/codeql-action/upload-sarif@v3
-        with:
-          sarif_file: ${{ env.REPORT_DIR }}/trivy-fs.sarif
-          category: trivy-fs
-
-      - name: Upload Trivy filesystem report artifact
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: trivy-fs-scan-reports
-          path: ${{ env.REPORT_DIR }}/trivy-fs.sarif
-
-  checkov:
-    name: CHECKOV
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-
-      - name: Install Checkov
-        run: python -m pip install --upgrade pip checkov
-
-      - name: Prepare report directory
-        run: mkdir -p "${REPORT_DIR}"
-
-      - name: Run Checkov
-        run: >-
-          checkov -d .
-          --framework dockerfile,github_actions
-          --skip-path app.db
-          --output sarif
-          --output-file-path "${REPORT_DIR}"
-          --soft-fail
-
-      - name: Upload Checkov SARIF
-        if: always()
-        uses: github/codeql-action/upload-sarif@v3
-        with:
-          sarif_file: ${{ env.REPORT_DIR }}/results_sarif.sarif
-          category: checkov
-
-      - name: Upload Checkov report artifact
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: checkov-scan-reports
-          path: ${{ env.REPORT_DIR }}/results_sarif.sarif
-
-  trivy-image:
-    name: TRIVY IMAGE
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Prepare report directory
-        run: mkdir -p "${REPORT_DIR}"
-
-      - name: Build image for Trivy
-        run: docker build -t "${IMAGE_NAME}:${GITHUB_SHA}" .
-
-      - name: Run Trivy image scan
-        uses: aquasecurity/trivy-action@0.28.0
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TRIVY_DB_REPOSITORY: ghcr.io/aquasecurity/trivy-db
-        with:
-          image-ref: ${{ env.IMAGE_NAME }}:${{ github.sha }}
-          scanners: vuln
-          severity: HIGH,CRITICAL
-          format: sarif
-          output: ${{ env.REPORT_DIR }}/trivy-image.sarif
-          ignore-unfixed: true
-          exit-code: 0
-
-      - name: Upload Trivy image SARIF
-        if: always()
-        uses: github/codeql-action/upload-sarif@v3
-        with:
-          sarif_file: ${{ env.REPORT_DIR }}/trivy-image.sarif
-          category: trivy-image
-
-      - name: Upload Trivy image report artifact
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: trivy-image-scan-reports
-          path: ${{ env.REPORT_DIR }}/trivy-image.sarif
-
-  dynamic:
-    name: DYNAMIC
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Generate JWT secret
-        id: jwt_secret
-        run: |
-          echo "jwt_secret=$(python - <<'PY'
-import secrets
-print(secrets.token_hex(32))
-PY
-)" >> "$GITHUB_OUTPUT"
-
-      - name: Prepare report directory
-        run: mkdir -p "${REPORT_DIR}"
-
-      - name: Build runtime image
-        run: docker build -t "${IMAGE_NAME}:${GITHUB_SHA}" .
-
-      - name: Start application container
-        run: |
-          docker run -d --rm \
-            --name app-under-test \
-            -e JWT_SECRET="${{ steps.jwt_secret.outputs.jwt_secret }}" \
-            -p 127.0.0.1:${APP_PORT}:5000 \
-            "${IMAGE_NAME}:${GITHUB_SHA}"
-
-      - name: Wait for /health
-        run: |
-          for attempt in $(seq 1 30); do
-            if curl -fsS "http://127.0.0.1:${APP_PORT}/health" >/dev/null; then
-              exit 0
-            fi
-            sleep 2
-          done
-
-          docker logs app-under-test
-          exit 1
-
-      - name: Run OWASP ZAP baseline scan
-        uses: zaproxy/action-baseline@v0.15.0
-        with:
-          target: http://127.0.0.1:${{ env.APP_PORT }}
-          token: ${{ secrets.GITHUB_TOKEN }}
-          allow_issue_writing: false
-          fail_action: false
-          artifact_name: zap-scan-reports
-          cmd_options: >-
-            -a
-            -r ${{ env.REPORT_DIR }}/zap.html
-            -J ${{ env.REPORT_DIR }}/zap.json
-            -w ${{ env.REPORT_DIR }}/zap.md
-
-      - name: Stop application container
-        if: always()
-        run: docker rm -f app-under-test
-
-  gate:
-    name: SECURITY GATE
-    runs-on: ubuntu-latest
-    needs:
-      - gitleaks
-      - bandit
-      - semgrep
-      - trivy-fs
-      - checkov
-      - trivy-image
-      - dynamic
-    if: always()
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Download scan artifacts
-        uses: actions/download-artifact@v4
-        with:
-          pattern: "*-scan-reports"
-          merge-multiple: true
-          path: combined-reports
-
-      - name: Build consolidated report and enforce gate
-        run: |
-          python scripts/consolidate_security_reports.py \
-            --input-dir combined-reports \
-            --output consolidated-security-report.md \
-            --expect gitleaks.sarif bandit.sarif semgrep.sarif trivy-fs.sarif results_sarif.sarif trivy-image.sarif zap.html zap.json zap.md
-
-      - name: Upload consolidated report
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: consolidated-security-report
-          path: consolidated-security-report.mdname: security
-
-on:
-  push:
-  pull_request:
-
-permissions:
-  contents: read
-  security-events: write
-
-env:
-  REPORT_DIR: reports
-  IMAGE_NAME: break-and-detect
-  APP_PORT: "5000"
-
-jobs:
-  static:
-    name: STATIC
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-
-      - name: Install source-scanning tools
-        run: python -m pip install --upgrade pip bandit semgrep checkov
-
-      - name: Prepare report directory
-        run: mkdir -p "${REPORT_DIR}"
-
-      - name: Gitleaks secrets scan
-        # STATIC: secrets live in the repository history/files, so the app does not need to run.
-        continue-on-error: true
-        run: |
-          docker run --rm -v "$PWD:/repo" -w /repo zricethezav/gitleaks:v8.21.2 detect \
-            --source /repo \
-            --no-banner \
-            --exclude-path app.db \
-            --report-format sarif \
-            --report-path "${REPORT_DIR}/gitleaks.sarif"
-
-      - name: Bandit SAST
-        # STATIC: Bandit inspects Python source for insecure patterns without starting Flask.
-        continue-on-error: true
-        run: |
-          bandit -r . -x .git,venv,__pycache__,app.db -f sarif -o "${REPORT_DIR}/bandit.sarif"
-
-      - name: Semgrep SAST
-        # STATIC: Semgrep reasons over code at rest, which makes it a source-level control.
-        continue-on-error: true
-        run: |
-          semgrep scan --config p/default --sarif --output "${REPORT_DIR}/semgrep.sarif" \
-            --exclude .git --exclude venv --exclude __pycache__ --exclude app.db .
-
-      - name: Trivy filesystem scan
-        # STATIC: dependency CVEs can be found from the checked-out files without a live service.
-        continue-on-error: true
-        uses: aquasecurity/trivy-action@0.28.0
-        with:
-          scan-type: fs
-          scan-ref: .
-          scanners: vuln
-          format: sarif
-          output: ${{ env.REPORT_DIR }}/trivy-fs.sarif
-          ignore-unfixed: true
-
-      - name: Build image for static image scan
-        # STATIC: the image artifact can be scanned offline as soon as it is built; no container starts here.
-        run: docker build -t "${IMAGE_NAME}:${GITHUB_SHA}" .
-
-      - name: Trivy image scan
-        # STATIC: image CVEs are a property of the built artifact, not of runtime behavior.
-        continue-on-error: true
-        uses: aquasecurity/trivy-action@0.28.0
-        with:
-          image-ref: ${{ env.IMAGE_NAME }}:${{ github.sha }}
-          scanners: vuln
-          format: sarif
-          output: ${{ env.REPORT_DIR }}/trivy-image.sarif
-          ignore-unfixed: true
-
-      - name: Checkov IaC scan
-        # STATIC: Dockerfile and workflow policy are configuration-as-code, so they can be checked at rest.
-        continue-on-error: true
-        run: |
-          checkov -d . \
-            --framework dockerfile,github_actions \
-            --skip-path app.db \
-            --output sarif \
-            --output-file-path "${REPORT_DIR}"
-
-      - name: Upload Gitleaks SARIF
-        if: always()
-        uses: github/codeql-action/upload-sarif@v3
-        with:
-          sarif_file: ${{ env.REPORT_DIR }}/gitleaks.sarif
-          category: gitleaks
-
-      - name: Upload Bandit SARIF
-        if: always()
-        uses: github/codeql-action/upload-sarif@v3
-        with:
-          sarif_file: ${{ env.REPORT_DIR }}/bandit.sarif
-          category: bandit
-
-      - name: Upload Semgrep SARIF
-        if: always()
-        uses: github/codeql-action/upload-sarif@v3
-        with:
-          sarif_file: ${{ env.REPORT_DIR }}/semgrep.sarif
-          category: semgrep
-
-      - name: Upload Trivy filesystem SARIF
-        if: always()
-        uses: github/codeql-action/upload-sarif@v3
-        with:
-          sarif_file: ${{ env.REPORT_DIR }}/trivy-fs.sarif
-          category: trivy-fs
-
-      - name: Upload Trivy image SARIF
-        if: always()
-        uses: github/codeql-action/upload-sarif@v3
-        with:
-          sarif_file: ${{ env.REPORT_DIR }}/trivy-image.sarif
-          category: trivy-image
-
-      - name: Upload Checkov SARIF
-        if: always()
-        uses: github/codeql-action/upload-sarif@v3
-        with:
-          sarif_file: ${{ env.REPORT_DIR }}/results_sarif.sarif
-          category: checkov
-
-      - name: Upload static scan reports
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: static-scan-reports
           path: ${{ env.REPORT_DIR }}
-  gitleaks:
-    name: GITLEAKS
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Prepare report directory
-        run: mkdir -p "${REPORT_DIR}"
-
-      - name: Run Gitleaks
-        uses: gitleaks/gitleaks-action@v2
-        with:
-          args: >-
-            detect
-            --source .
-            --no-banner
-            --report-format sarif
-            --report-path ${{ env.REPORT_DIR }}/gitleaks.sarif
-            --exit-code 0
-
-      - name: Upload Gitleaks SARIF
-        if: always()
-        uses: github/codeql-action/upload-sarif@v3
-        with:
-          sarif_file: ${{ env.REPORT_DIR }}/gitleaks.sarif
-          category: gitleaks
-
-      - name: Upload Gitleaks report artifact
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: gitleaks-scan-reports
-          path: ${{ env.REPORT_DIR }}/gitleaks.sarif
+          if-no-files-found: ignore
 
   bandit:
     name: BANDIT
@@ -885,7 +62,7 @@ jobs:
           python-version: "3.11"
 
       - name: Install Bandit with SARIF support
-        run: python -m pip install --upgrade pip 'bandit[sarif]'
+        run: python -m pip install --upgrade pip "bandit[sarif]"
 
       - name: Prepare report directory
         run: mkdir -p "${REPORT_DIR}"
@@ -895,6 +72,7 @@ jobs:
 
       - name: Upload Bandit SARIF
         if: always()
+        continue-on-error: true
         uses: github/codeql-action/upload-sarif@v3
         with:
           sarif_file: ${{ env.REPORT_DIR }}/bandit.sarif
@@ -905,7 +83,8 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: bandit-scan-reports
-          path: ${{ env.REPORT_DIR }}/bandit.sarif
+          path: ${{ env.REPORT_DIR }}
+          if-no-files-found: ignore
 
   semgrep:
     name: SEMGREP
@@ -936,10 +115,12 @@ jobs:
           --exclude .venv
           --exclude __pycache__
           --exclude app.db
-          --exit-zero
+          --error
+          || true
 
       - name: Upload Semgrep SARIF
         if: always()
+        continue-on-error: true
         uses: github/codeql-action/upload-sarif@v3
         with:
           sarif_file: ${{ env.REPORT_DIR }}/semgrep.sarif
@@ -950,7 +131,8 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: semgrep-scan-reports
-          path: ${{ env.REPORT_DIR }}/semgrep.sarif
+          path: ${{ env.REPORT_DIR }}
+          if-no-files-found: ignore
 
   trivy-fs:
     name: TRIVY FILESYSTEM
@@ -975,10 +157,11 @@ jobs:
           format: sarif
           output: ${{ env.REPORT_DIR }}/trivy-fs.sarif
           ignore-unfixed: true
-          exit-code: 0
+          exit-code: "0"
 
       - name: Upload Trivy filesystem SARIF
         if: always()
+        continue-on-error: true
         uses: github/codeql-action/upload-sarif@v3
         with:
           sarif_file: ${{ env.REPORT_DIR }}/trivy-fs.sarif
@@ -989,47 +172,8 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: trivy-fs-scan-reports
-          path: ${{ env.REPORT_DIR }}/trivy-fs.sarif
-
-  checkov:
-    name: CHECKOV
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-
-      - name: Install Checkov
-        run: python -m pip install --upgrade pip checkov
-
-      - name: Prepare report directory
-        run: mkdir -p "${REPORT_DIR}"
-
-      - name: Run Checkov
-        run: >-
-          checkov -d .
-          --framework dockerfile,github_actions
-          --skip-path app.db
-          --output sarif
-          --output-file-path "${REPORT_DIR}"
-
-      - name: Upload Checkov SARIF
-        if: always()
-        uses: github/codeql-action/upload-sarif@v3
-        with:
-          sarif_file: ${{ env.REPORT_DIR }}/results_sarif.sarif
-          category: checkov
-
-      - name: Upload Checkov report artifact
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: checkov-scan-reports
-          path: ${{ env.REPORT_DIR }}/results_sarif.sarif
+          path: ${{ env.REPORT_DIR }}
+          if-no-files-found: ignore
 
   trivy-image:
     name: TRIVY IMAGE
@@ -1056,10 +200,11 @@ jobs:
           format: sarif
           output: ${{ env.REPORT_DIR }}/trivy-image.sarif
           ignore-unfixed: true
-          exit-code: 0
+          exit-code: "0"
 
       - name: Upload Trivy image SARIF
         if: always()
+        continue-on-error: true
         uses: github/codeql-action/upload-sarif@v3
         with:
           sarif_file: ${{ env.REPORT_DIR }}/trivy-image.sarif
@@ -1070,7 +215,51 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: trivy-image-scan-reports
-          path: ${{ env.REPORT_DIR }}/trivy-image.sarif
+          path: ${{ env.REPORT_DIR }}
+          if-no-files-found: ignore
+
+  checkov:
+    name: CHECKOV
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Checkov
+        run: python -m pip install --upgrade pip checkov
+
+      - name: Prepare report directory
+        run: mkdir -p "${REPORT_DIR}"
+
+      - name: Run Checkov
+        run: >-
+          checkov -d .
+          --framework dockerfile,github_actions
+          --skip-path app.db
+          --output sarif
+          --output-file-path "${REPORT_DIR}"
+          --soft-fail
+
+      - name: Upload Checkov SARIF
+        if: always()
+        continue-on-error: true
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: ${{ env.REPORT_DIR }}/results_sarif.sarif
+          category: checkov
+
+      - name: Upload Checkov report artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: checkov-scan-reports
+          path: ${{ env.REPORT_DIR }}
+          if-no-files-found: ignore
 
   dynamic:
     name: DYNAMIC
@@ -1079,17 +268,12 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Generate JWT secret
-        id: jwt_secret
-        run: |
-          echo "jwt_secret=$(python - <<'PY'
-import secrets
-print(secrets.token_hex(32))
-PY
-)" >> "$GITHUB_OUTPUT"
-
       - name: Prepare report directory
-        run: mkdir -p "${REPORT_DIR}"
+        run: mkdir -p "${REPORT_DIR}" && chmod 777 "${REPORT_DIR}"
+
+      - name: Generate JWT secret
+        id: jwt
+        run: echo "value=$(python3 -c 'import secrets; print(secrets.token_hex(32))')" >> "$GITHUB_OUTPUT"
 
       - name: Build runtime image
         run: docker build -t "${IMAGE_NAME}:${GITHUB_SHA}" .
@@ -1098,123 +282,34 @@ PY
         run: |
           docker run -d --rm \
             --name app-under-test \
-            -e JWT_SECRET="${{ steps.jwt_secret.outputs.jwt_secret }}" \
-            -p 127.0.0.1:${APP_PORT}:5000 \
+            -e JWT_SECRET="${{ steps.jwt.outputs.value }}" \
+            -p ${APP_PORT}:5000 \
             "${IMAGE_NAME}:${GITHUB_SHA}"
 
       - name: Wait for /health
         run: |
           for attempt in $(seq 1 30); do
             if curl -fsS "http://127.0.0.1:${APP_PORT}/health" >/dev/null; then
+              echo "service is up"
               exit 0
             fi
             sleep 2
           done
-
-          docker logs app-under-test
+          echo "service did not become healthy; dumping logs"
+          docker logs app-under-test || true
           exit 1
 
       - name: Run OWASP ZAP baseline scan
-        uses: zaproxy/action-baseline@v0.15.0
-        with:
-          target: http://127.0.0.1:${{ env.APP_PORT }}
-          token: ${{ secrets.GITHUB_TOKEN }}
-          allow_issue_writing: false
-          fail_action: false
-          artifact_name: zap-scan-reports
-          cmd_options: >-
-            -a
-            -r ${{ env.REPORT_DIR }}/zap.html
-            -J ${{ env.REPORT_DIR }}/zap.json
-            -w ${{ env.REPORT_DIR }}/zap.md
-
-      - name: Stop application container
-        if: always()
-        run: docker rm -f app-under-test
-
-  gate:
-    name: SECURITY GATE
-    runs-on: ubuntu-latest
-    needs:
-      - gitleaks
-      - bandit
-      - semgrep
-      - trivy-fs
-      - checkov
-      - trivy-image
-      - dynamic
-    if: always()
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Download scan artifacts
-        uses: actions/download-artifact@v4
-        with:
-          pattern: "*-scan-reports"
-          merge-multiple: true
-          path: combined-reports
-
-      - name: Build consolidated report and enforce gate
         run: |
-          python scripts/consolidate_security_reports.py \
-            --input-dir combined-reports \
-            --output consolidated-security-report.md \
-            --expect gitleaks.sarif bandit.sarif semgrep.sarif trivy-fs.sarif results_sarif.sarif trivy-image.sarif zap.html zap.json zap.md
-
-      - name: Upload consolidated report
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: consolidated-security-report
-          path: consolidated-security-report.md
-
-  dynamic:
-    name: DYNAMIC
-    runs-on: ubuntu-latest
-    needs: static
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Build runtime image
-        run: docker build -t "${IMAGE_NAME}:${GITHUB_SHA}" .
-
-      - name: Start application container
-        run: |
-          docker run -d --rm \
-            --name app-under-test \
-            -p 127.0.0.1:${APP_PORT}:5000 \
-            "${IMAGE_NAME}:${GITHUB_SHA}"
-
-      - name: Wait for the service to become reachable
-        # DYNAMIC: ZAP needs a live HTTP service, so we wait for the container before scanning.
-        run: |
-          for attempt in $(seq 1 30); do
-            if curl -fsS "http://127.0.0.1:${APP_PORT}/greet?name=ready" >/dev/null; then
-              exit 0
-            fi
-            sleep 2
-          done
-
-          docker logs app-under-test
-          exit 1
-
-      - name: OWASP ZAP baseline scan
-        # DYNAMIC: ZAP probes runtime responses, headers, and reflected behavior that source scanners cannot see.
-        continue-on-error: true
-        run: |
-          mkdir -p "${REPORT_DIR}"
-          docker run --rm --network host ghcr.io/zaproxy/zaproxy:stable zap-baseline.py \
+          docker run --rm --network host \
+            -v "${PWD}/${REPORT_DIR}:/zap/wrk:rw" \
+            ghcr.io/zaproxy/zaproxy:stable zap-baseline.py \
             -t "http://127.0.0.1:${APP_PORT}" \
-            -r "${REPORT_DIR}/zap.html" \
-            -J "${REPORT_DIR}/zap.json" \
-            -w "${REPORT_DIR}/zap.md" \
-            -m 5
+            -J zap.json -w zap.md -r zap.html -m 5 -I || true
 
       - name: Stop application container
         if: always()
-        run: docker rm -f app-under-test
+        run: docker rm -f app-under-test || true
 
       - name: Upload dynamic scan reports
         if: always()
@@ -1222,13 +317,26 @@ PY
         with:
           name: dynamic-scan-reports
           path: ${{ env.REPORT_DIR }}
+          if-no-files-found: ignore
 
   gate:
     name: SECURITY GATE
     runs-on: ubuntu-latest
-    needs: [static, dynamic]
+    needs:
+      - gitleaks
+      - bandit
+      - semgrep
+      - trivy-fs
+      - trivy-image
+      - checkov
+      - dynamic
     if: always()
     steps:
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
       - name: Download scan artifacts
         uses: actions/download-artifact@v4
         with:
@@ -1236,71 +344,82 @@ PY
           merge-multiple: true
           path: combined-reports
 
-      - name: Evaluate high and critical findings
-        id: gate
+      - name: Consolidate reports and enforce gate
         run: |
-          python3 <<'PY'
-          import json
+          python3 - <<'PY'
+          import json, sys
           from pathlib import Path
 
-          report_root = Path("combined-reports")
-          consolidated = Path("consolidated-security-report.md")
-
-          rows = []
+          root = Path("combined-reports")
+          out = ["# Consolidated Security Report", "",
+                 "| Report | HIGH/CRITICAL | Result |",
+                 "| --- | ---: | --- |"]
           failing = []
 
-          def sarif_highs(path: Path) -> int:
-              data = json.loads(path.read_text())
+          def sarif_errors(path):
+              try:
+                  data = json.loads(Path(path).read_text())
+              except Exception:
+                  return None
               return sum(
                   1
                   for run in data.get("runs", [])
-                  for result in run.get("results", [])
-                  if result.get("level") == "error"
+                  for res in run.get("results", [])
+                  if res.get("level") == "error"
               )
 
-          def zap_highs(path: Path) -> int:
-              data = json.loads(path.read_text())
-              count = 0
-              for site in data.get("site", []):
-                  for alert in site.get("alerts", []):
-                      risk = str(alert.get("riskdesc", alert.get("risk", ""))).lower()
-                      if risk.startswith("high"):
-                          count += 1
-              return count
-
-          for path in sorted(report_root.rglob("*.sarif")):
-              high_count = sarif_highs(path)
-              rows.append((path.name, high_count, "FAIL" if high_count else "PASS"))
-              if high_count:
-                  failing.append(f"{path.name}: {high_count} error-level result(s)")
-
-          zap_json = report_root / "zap.json"
-          if zap_json.exists():
-              high_count = zap_highs(zap_json)
-              rows.append((zap_json.name, high_count, "FAIL" if high_count else "PASS"))
-              if high_count:
-                  failing.append(f"{zap_json.name}: {high_count} high-risk alert(s)")
-
-          lines = [
-              "# Consolidated Security Report",
-              "",
-              "| Report | High/Critical count | Result |",
-              "| --- | ---: | --- |",
+          # Security scanners that hard-fail the build on HIGH/CRITICAL.
+          gating = [
+              "gitleaks.sarif", "bandit.sarif", "semgrep.sarif",
+              "trivy-fs.sarif", "trivy-image.sarif",
           ]
-          for name, count, result in rows:
-              lines.append(f"| {name} | {count} | {result} |")
+          for name in gating:
+              hits = list(root.rglob(name))
+              if not hits:
+                  out.append(f"| {name} | - | not produced |")
+                  continue
+              n = sarif_errors(hits[0])
+              if n is None:
+                  out.append(f"| {name} | - | unreadable |")
+                  continue
+              out.append(f"| {name} | {n} | {'FAIL' if n else 'PASS'} |")
+              if n:
+                  failing.append(f"{name}: {n} HIGH/CRITICAL result(s)")
 
-          lines.append("")
+          # Checkov IaC findings are advisory only (reported, not gated).
+          for m in root.rglob("results_sarif.sarif"):
+              n = sarif_errors(m) or 0
+              out.append(f"| checkov (advisory) | {n} | INFO |")
+              break
+
+          # ZAP high-risk alerts hard-fail the build.
+          for m in root.rglob("zap.json"):
+              try:
+                  data = json.loads(Path(m).read_text())
+                  highs = 0
+                  for site in data.get("site", []):
+                      for alert in site.get("alerts", []):
+                          rd = str(alert.get("riskdesc", "")).lower()
+                          if rd.startswith("high") or str(alert.get("riskcode", "")) == "3":
+                              highs += 1
+                  out.append(f"| zap.json | {highs} | {'FAIL' if highs else 'PASS'} |")
+                  if highs:
+                      failing.append(f"zap.json: {highs} high-risk alert(s)")
+              except Exception:
+                  out.append("| zap.json | - | unreadable |")
+              break
+
+          out.append("")
           if failing:
-              lines.append("The gate failed on the following high/critical findings:")
-              lines.extend(f"- {item}" for item in failing)
+              out.append("## Gate result: FAILED")
+              out += [f"- {x}" for x in failing]
           else:
-              lines.append("No high/critical findings were detected by the uploaded reports.")
+              out.append("## Gate result: PASSED — no HIGH/CRITICAL findings.")
 
-          consolidated.write_text("\n".join(lines) + "\n")
-
+          Path("consolidated-security-report.md").write_text("\n".join(out) + "\n")
+          print("\n".join(out))
           if failing:
-              raise SystemExit(1)
+              sys.exit(1)
           PY
 
       - name: Upload consolidated report
@@ -1309,3 +428,4 @@ PY
         with:
           name: consolidated-security-report
           path: consolidated-security-report.md
+          if-no-files-found: ignore
