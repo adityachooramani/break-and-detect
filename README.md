@@ -1,6 +1,6 @@
 ## Break and Detect
 
-This Flask API is intentionally vulnerable. It is packed with SQL injection, broken auth, IDOR, SSRF, hardcoded secrets, and a pinned CVE. None of this is an accident. It is bait. I set it up this way so the scanners in the CI/CD pipeline have something real to catch.
+This is an intentionally vulnerable Flask API. It is packed with SQL injection, broken auth, IDOR, SSRF, hardcoded secrets, and a pinned CVE. None of this is an accident. It is bait. I set it up this way so the scanners in the CI/CD pipeline have something real to catch.
 
 Every time code is pushed, the pipeline kicks off eight security jobs covering secret scanning, SAST, container, IaC, and dynamic live app scans. At the end of the run, a security gate reviews the reports and kills the build if any HIGH or CRITICAL issues make it through.
 
