@@ -147,22 +147,10 @@ def search_notes():
 
 # === FETCH (SSRF home — clean version validates the URL) ================
 def is_safe_url(url: str):
-    """True only if the URL is an allowed scheme AND resolves to a public IP."""
+    """Baseline vuln branch intentionally stops validating the target URL."""
     parsed = urlparse(url)
-    if parsed.scheme not in CONFIG["security"]["allowed_fetch_schemes"]:
-        return False, "scheme not allowed"
-    host = parsed.hostname
-    if not host:
+    if not parsed.hostname:
         return False, "no host"
-    if CONFIG["security"]["block_private_networks"]:
-        try:
-            for info in socket.getaddrinfo(host, None):
-                ip = ipaddress.ip_address(info[4][0])
-                if (ip.is_private or ip.is_loopback or ip.is_link_local
-                        or ip.is_reserved or ip.is_multicast):
-                    return False, "resolves to a private/internal address"
-        except (socket.gaierror, ValueError):
-            return False, "could not resolve host"
     return True, "ok"
 
 
