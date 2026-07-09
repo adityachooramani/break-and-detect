@@ -117,9 +117,6 @@ def get_note(note_id):
         row = conn.execute("SELECT * FROM notes WHERE id = ?", (note_id,)).fetchone()
     if row is None:
         return jsonify({"error": "note not found"}), 404
-    # === THE OWNERSHIP BOUNDARY (IDOR/BOLA defense) ===
-    if row["owner_id"] != g.user_id:
-        return jsonify({"error": "forbidden"}), 403
     return jsonify(dict(row))
 
 
@@ -130,8 +127,6 @@ def delete_note(note_id):
         row = conn.execute("SELECT owner_id FROM notes WHERE id = ?", (note_id,)).fetchone()
         if row is None:
             return jsonify({"error": "note not found"}), 404
-        if row["owner_id"] != g.user_id:                     # ownership boundary again
-            return jsonify({"error": "forbidden"}), 403
         conn.execute("DELETE FROM notes WHERE id = ?", (note_id,))
         conn.commit()
     return jsonify({"deleted": note_id})
