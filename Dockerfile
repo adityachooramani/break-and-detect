@@ -1,11 +1,10 @@
-FROM python:3.11.9-slim-bookworm
+FROM python:3.13-slim-bookworm
 
 WORKDIR /app
 
 COPY requirements.txt ./
 RUN pip install --no-cache-dir --disable-pip-version-check -r requirements.txt
 
-# app.db is intentionally NOT copied: it is generated at runtime by db.py.
 COPY app.py auth.py db.py config.yaml ./
 
 # Bind the container to all interfaces so the service is reachable from the host.
@@ -17,5 +16,4 @@ USER appuser
 
 EXPOSE 5000
 
-# Initialize the SQLite database on startup, then launch the app.
 CMD ["sh", "-c", "python db.py && python app.py"]
