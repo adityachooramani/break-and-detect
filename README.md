@@ -1,82 +1,10 @@
-# Break and Detect
-
-## What this project is
-
-This repository contains a Flask API backed by SQLite and a GitHub Actions security workflow. The API handles user registration and login, note CRUD, note search, a guarded fetch endpoint, and an admin endpoint. The workflow runs multiple scanners and produces a consolidated gate report. Everything in this README is based on the current files in this repository.
-
-## Features
-
-- Flask API endpoints currently implemented:
-	- GET /health and GET /healthz
-	- POST /auth/register
-	- POST /auth/login
-	- POST /notes
-	- GET /notes
-	- GET /notes/<int:note_id>
-	- DELETE /notes/<int:note_id>
-	- GET /search
-	- GET /fetch
-	- GET /greet
-	- GET /admin
-- JWT auth middleware via Authorization: Bearer <token>.
-- Password hashing with bcrypt.
-- SQLite schema creation and seed data in db.py.
-- Docker image build and container run support.
-- GitHub Actions jobs for static and dynamic security scanning.
-
-Security-related behavior verified in code:
-
-- SQL injection via raw query: not present in app.py. SQL calls are parameterized.
-- Weak JWT handling: not obvious in current code. Tokens include exp and are verified with PyJWT. Secret is loaded from JWT_SECRET env var.
-- IDOR or BOLA: direct object access checks are present on note read and delete.
-- SSRF: fetch endpoint enforces allowed scheme list and blocks private or loopback targets.
-- Hardcoded secrets: not present in auth.py.
-- Missing rate limiting: no rate limiting implementation found.
-- Verbose error output: app debug is controlled by config.yaml and currently set to false.
-- Missing security headers: not present. app.py sets X-Content-Type-Options, X-Frame-Options, and Content-Security-Policy.
-- Reflected XSS: greet endpoint escapes user input before rendering HTML.
-
-## Tech stack
-
-- Python 3
-- Flask
-- SQLite
-- PyJWT
-- bcrypt
-- requests
-- Docker and Docker Compose
-- GitHub Actions
-
-## Project structure
-
-.
-├── .dockerignore
-├── .github
-│   └── workflows
-│       └── security.yml
-├── Dockerfile
-├── README.md
-├── app.db
-├── app.py
-├── auth.py
-├── config.yaml
-├── db.py
-├── docker-compose.yml
-├── docs
-│   ├── App_architecture.png
-│   ├── VULNERABILITIES.md
-│   └── pipeline_architecture.png
-├── requirements.txt
-└── scripts
-		└── consolidate_security_reports.py
-
 ## Setup and installation
 
 Prerequisites:
 
 - Python 3.11 or newer (Dockerfile currently uses python:3.13-slim-bookworm)
 - pip
-- Docker (optional for container run)
+- Docker (optional for container run, required for local Trivy/ZAP scans)
 
 Install locally:
 
@@ -110,8 +38,8 @@ Quick checks:
 ```bash
 curl -s http://127.0.0.1:5000/health
 curl -s -X POST http://127.0.0.1:5000/auth/login \
-	-H 'Content-Type: application/json' \
-	-d '{"username":"chintu","password":"chintu123"}'
+  -H 'Content-Type: application/json' \
+  -d '{"username":"chintu","password":"chintu123"}'
 ```
 
 ## How the CI/CD security pipeline works
@@ -121,54 +49,71 @@ Workflow file: .github/workflows/security.yml
 Jobs and what they do:
 
 - GITLEAKS
-	- Tool: gitleaks container (ghcr.io/gitleaks/gitleaks:latest)
-	- Scan target: repository files for secrets
-	- SARIF upload in this job: yes (upload-sarif, category gitleaks)
+  - Tool: gitleaks container (ghcr.io/gitleaks/gitleaks:latest)
+  - Scan target: repository files for secrets
+  - SARIF upload: yes, category gitleaks
+  - Exits non-zero only on a real tool crash, not on findings
 - BANDIT
-	- Tool: Bandit
-	- Scan target: Python source code
-	- SARIF upload in this job: yes (category bandit)
+  - Tool: Bandit
+  - Scan target: Python source code
+  - SARIF upload: yes, category bandit
+  - Exits non-zero only on a real tool crash, not on findings
 - SEMGREP
-	- Tool: Semgrep with config p/default
-	- Scan target: source code
-	- SARIF upload in this job: yes (category semgrep)
+  - Tool: Semgrep with config p/default
+  - Scan target: source code
+  - SARIF upload: yes, category semgrep
+  - Exits non-zero only on a real tool crash, not on findings
 - TRIVY FILESYSTEM
-	- Tool: Trivy action
-	- Scan target: filesystem and dependencies in workspace
-	- SARIF upload in this job: yes (category trivy-fs)
+  - Tool: Trivy (ghcr.io/aquasecurity/trivy:0.36.0)
+  - Scan target: filesystem and Python dependencies
+  - SARIF upload: yes, category trivy-fs
+  - Hard-fails the job on HIGH/CRITICAL findings
 - TRIVY IMAGE
-	- Tool: Trivy action
-	- Scan target: built container image
-	- SARIF upload in this job: yes (category trivy-image)
+  - Tool: Trivy (ghcr.io/aquasecurity/trivy:0.36.0)
+  - Scan target: built container image
+  - SARIF upload: yes, category trivy-image
+  - Hard-fails the job on HIGH/CRITICAL findings (see Known gaps below for
+    current status of this)
 - CHECKOV
-	- Tool: Checkov
-	- Scan target: dockerfile and github_actions frameworks (not Terraform)
-	- SARIF upload in this job: yes (category checkov)
+  - Tool: Checkov
+  - Scan target: dockerfile, github_actions, and terraform frameworks
+    (infra/main.tf)
+  - SARIF upload: yes, category checkov
+  - Reported as advisory in the Security Gate, does not hard-fail
 - DYNAMIC
-	- Tool: OWASP ZAP baseline via docker run
-	- Scan target: running app at http://127.0.0.1:${APP_PORT}
-	- SARIF upload in this job: no
-	- Artifact upload in this job: yes (zap.json, zap.md, zap.html in reports dir)
+  - Tool: OWASP ZAP baseline via docker run
+  - Scan target: running app at http://127.0.0.1:${APP_PORT}
+  - Produces zap.json, zap.md, zap.html as artifacts
+  - zap.json is converted to SARIF (scripts/zap_to_sarif.py) and uploaded,
+    category zap
 - SECURITY GATE
-	- Tool: inline Python script in workflow
-	- Scan target: downloaded artifacts from prior jobs
-	- SARIF upload in this job: no
-	- Output: consolidated-security-report.md artifact
+  - Tool: inline Python script in the workflow
+  - Scan target: downloaded artifacts from all prior jobs
+  - Output: consolidated-security-report.md artifact
 
 ## How to read the security gate output
 
 - Open the artifact named consolidated-security-report.
-- The report table lists each scanner output and HIGH or CRITICAL count.
-- Gate behavior from current workflow:
-	- gitleaks, bandit, semgrep, trivy-fs, trivy-image can fail the gate when SARIF result level is error.
-	- Checkov is reported as advisory in the gate script.
-	- ZAP can fail the gate only when zap.json contains high risk alerts.
+- The report table lists each scanner output and its HIGH/CRITICAL count.
+- Gitleaks, Bandit, Semgrep, and Trivy filesystem fail the gate on real
+  HIGH/CRITICAL findings.
+- Checkov is advisory only and does not fail the gate.
+- ZAP fails the gate only on high-risk alerts in zap.json.
+- Trivy image currently also hard-fails the gate. See Known gaps for the
+  current status of this.
 
 ## Known gaps or things not yet done
 
-- Branch layout: only main exists locally and as origin/main. No separate vulnerable branch or remediation branch exists in this repo right now.
-- Terraform: no .tf files found.
-- Checkov is currently not doing general IaC coverage. It is configured for dockerfile and github_actions frameworks only.
-- Dynamic ZAP job does not upload SARIF to GitHub Security tab.
-- Several scanner steps still mask failures with || true, and some upload-sarif steps use continue-on-error: true.
-- As of 2026-07-09, local Trivy 0.36.0 scans report 0 HIGH/CRITICAL findings in `requirements.txt` (filesystem scan) but 21 HIGH/CRITICAL findings in the `python:3.13-slim-bookworm` base image (Debian 12 OS packages such as perl-base, zlib1g, libsqlite3-0, ncurses, and util-linux); Python app dependencies appear clean, base image OS layer does not.
+- Trivy image findings: as of 2026-07-09, a local scan against
+  python:3.13-slim-bookworm found 21 HIGH/CRITICAL findings, all in Debian 12
+  OS packages (examples include perl-base, zlib1g, libsqlite3-0, ncurses, and
+  util-linux). None are in Python application dependencies, the filesystem
+  scan of requirements.txt is clean. Because the Trivy image job currently
+  hard-fails on HIGH/CRITICAL, the Security Gate will fail until one of the
+  following is done: switch the base image to a newer tag with fewer
+  accumulated OS CVEs, scope Trivy image findings as advisory in the gate
+  script the same way Checkov findings are already handled, or both. This
+  decision has not yet been applied to the workflow.
+- No rate limiting is implemented on any endpoint. This is a known
+  application-level gap, not something intentionally toggled between
+  branches.
