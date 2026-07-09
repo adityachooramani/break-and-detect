@@ -239,7 +239,7 @@ jobs:
       - name: Run Checkov
         run: >-
           checkov -d .
-          --framework dockerfile,github_actions
+          --framework dockerfile,github_actions,terraform
           --skip-path app.db
           --output sarif
           --output-file-path "${REPORT_DIR}"
