@@ -1,3 +1,13 @@
+## Break and Detect
+
+This Flask API is intentionally vulnerable. It is packed with SQL injection, broken auth, IDOR, SSRF, hardcoded secrets, and a pinned CVE. None of this is an accident. It is bait. I set it up this way so the scanners in the CI/CD pipeline have something real to catch.
+
+Every time code is pushed, the pipeline kicks off eight security jobs covering secret scanning, SAST, container, IaC, and dynamic live app scans. At the end of the run, a security gate reviews the reports and kills the build if any HIGH or CRITICAL issues make it through.
+
+The repo is built to show a clear before and after. The main branch serves as the vulnerable baseline. The pipeline runs, the gate fails, and the Security tab populates with SARIF findings. Then, the remediation branch is where every finding gets fixed and the pipeline finally goes green.
+
+That before and after state is the entire purpose of the project. It is a practical demonstration of applied AppSec backed by a CI log anyone can audit. The README explains how to run it locally, the Actions tab shows the pipeline in motion, and the Security tab tracks exactly what the scanners caught and how those vulnerabilities were resolved.
+
 ## Setup and installation
 
 Prerequisites:
