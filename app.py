@@ -163,8 +163,7 @@ def fetch_url():
 @app.get("/greet")
 def greet():
     name = request.args.get("name", "stranger")
-    safe = escape(name)  # the one defense ZAP will notice is missing once removed
-    return f"<h1>Hello, {safe}!</h1>", 200, {"Content-Type": "text/html"}
+    return f"<h1>Hello, {name}!</h1>", 200, {"Content-Type": "text/html"}
 
 
 # === ADMIN (broken-auth home — clean version is gated + role-checked) ===
