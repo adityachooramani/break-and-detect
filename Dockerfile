@@ -1,18 +1,19 @@
-FROM python:3.11-slim
+FROM python:3.11.9-slim-bookworm
 
 WORKDIR /app
 
 COPY requirements.txt ./
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir --disable-pip-version-check -r requirements.txt
 
 COPY app.py auth.py db.py config.yaml app.db ./
 
-# Keep the container-local config aligned with the host port from config.yaml
-# so DAST can reach the service on 0.0.0.0:5000.
+# Bind the container to all interfaces so the service is reachable from the host.
 RUN sed -i 's/host: "127.0.0.1"/host: "0.0.0.0"/' config.yaml
 
-# Trivy and Checkov will flag the image for running as root; we leave that
-# intact on purpose so the scan target stays interesting.
+RUN useradd --create-home --shell /usr/sbin/nologin appuser && chown -R appuser:appuser /app
+
+USER appuser
+
 EXPOSE 5000
 
 CMD ["python", "app.py"]

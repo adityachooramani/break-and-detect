@@ -30,7 +30,7 @@ def issue_token(user_id: int, username: str) -> str:
     """Mint a signed JWT carrying the caller's identity + an expiry."""
     now = datetime.datetime.now(datetime.timezone.utc)
     payload = {
-        "sub": user_id,              # subject = who this token belongs to
+        "sub": str(user_id),        # subject = who this token belongs to
         "username": username,
         "iat": now,
         "exp": now + datetime.timedelta(minutes=TOKEN_TTL_MINUTES),
@@ -62,7 +62,7 @@ def require_auth(fn):
         except jwt.InvalidTokenError:
             return jsonify({"error": "invalid token"}), 401
 
-        g.user_id = claims["sub"]        # stash verified identity for the handler
+        g.user_id = int(claims["sub"])        # stash verified identity for the handler
         g.username = claims["username"]
         return fn(*args, **kwargs)
 

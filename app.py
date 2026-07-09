@@ -38,6 +38,12 @@ def set_security_headers(resp):
     return resp
 
 
+@app.get("/health")
+@app.get("/healthz")
+def health():
+    return jsonify({"status": "ok"}), 200
+
+
 # === AUTH ===============================================================
 @app.post("/auth/register")
 def register():

@@ -10,6 +10,7 @@ This file tracks the deliberate flaws that are added later on a separate branch.
 | Hardcoded secret | JWT signing key in `auth.py` | Swap the environment-backed secret for a literal string in the token issuer/validator. | Gitleaks, Trivy secret scan, Semgrep | Static |
 | Known-CVE dependency | `requirements.txt` | Downgrade one pinned package to a version with a published CVE. | Trivy filesystem/image scan | Static |
 | Security misconfiguration | `config.yaml` and response headers in `app.py` | Turn `debug` on and strip the hardening headers from the after-request hook. | Checkov, ZAP baseline, Trivy config scanning | Static and Dynamic |
+| Runs as root | `Dockerfile` | Reintroduce a root runtime user for the container. | Checkov, Trivy image scan | Static |
 | IDOR / BOLA | `/notes/<id>` in `app.py` | Remove the ownership check so callers can read or delete notes they do not own. | Usually missed by automated SAST/DAST; manual authz review and tests are needed | Static and Dynamic |
 | Broken auth | `/admin` in `app.py` | Remove or bypass the role check so any authenticated caller can reach the admin endpoint. | Usually missed by automated SAST/DAST; manual auth logic review is needed | Static and Dynamic |
 
