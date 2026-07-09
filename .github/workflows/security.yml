@@ -307,6 +307,23 @@ jobs:
             -t "http://127.0.0.1:${APP_PORT}" \
             -J zap.json -w zap.md -r zap.html -m 5 -I || true
 
+      - name: Convert ZAP report to SARIF
+        if: always()
+        run: |
+          if [ -f "${REPORT_DIR}/zap.json" ]; then
+            python3 scripts/zap_to_sarif.py "${REPORT_DIR}/zap.json" -o "${REPORT_DIR}/zap.sarif"
+          else
+            echo "zap.json not found; skipping SARIF conversion"
+          fi
+
+      - name: Upload ZAP SARIF
+        if: always()
+        continue-on-error: true
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: ${{ env.REPORT_DIR }}/zap.sarif
+          category: zap
+
       - name: Stop application container
         if: always()
         run: docker rm -f app-under-test || true
