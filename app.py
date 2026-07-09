@@ -29,15 +29,6 @@ def db_conn():
     return conn
 
 
-@app.after_request
-def set_security_headers(resp):
-    # Clean baseline ships hardening headers. (misconfig vuln later strips these.)
-    resp.headers["X-Content-Type-Options"] = "nosniff"
-    resp.headers["X-Frame-Options"] = "DENY"
-    resp.headers["Content-Security-Policy"] = "default-src 'self'"
-    return resp
-
-
 @app.get("/health")
 @app.get("/healthz")
 def health():
