@@ -171,4 +171,4 @@ Jobs and what they do:
 - Checkov is currently not doing general IaC coverage. It is configured for dockerfile and github_actions frameworks only.
 - Dynamic ZAP job does not upload SARIF to GitHub Security tab.
 - Several scanner steps still mask failures with || true, and some upload-sarif steps use continue-on-error: true.
-- requirements.txt and base image are pinned, but CVE-clean status is unconfirmed without running scanners against current versions.
+- As of 2026-07-09, local Trivy 0.36.0 scans report 0 HIGH/CRITICAL findings in `requirements.txt` (filesystem scan) but 21 HIGH/CRITICAL findings in the `python:3.13-slim-bookworm` base image (Debian 12 OS packages such as perl-base, zlib1g, libsqlite3-0, ncurses, and util-linux); Python app dependencies appear clean, base image OS layer does not.

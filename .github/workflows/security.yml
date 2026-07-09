@@ -161,7 +161,7 @@ jobs:
             -v "${PWD}:/work" \
             -e GITHUB_TOKEN="${GITHUB_TOKEN}" \
             -e TRIVY_DB_REPOSITORY="ghcr.io/aquasecurity/trivy-db" \
-            aquasecurity/trivy:0.36.0 fs \
+            ghcr.io/aquasecurity/trivy:0.36.0 fs \
             --severity HIGH,CRITICAL \
             --ignore-unfixed \
             --scanners vuln \
@@ -212,7 +212,7 @@ jobs:
             -v "${PWD}:/work" \
             -e GITHUB_TOKEN="${GITHUB_TOKEN}" \
             -e TRIVY_DB_REPOSITORY="ghcr.io/aquasecurity/trivy-db" \
-            aquasecurity/trivy:0.36.0 image \
+            ghcr.io/aquasecurity/trivy:0.36.0 image \
             --severity HIGH,CRITICAL \
             --ignore-unfixed \
             --scanners vuln \
