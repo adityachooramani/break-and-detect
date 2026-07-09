@@ -1,5 +1,5 @@
 app:
-  debug: false          # NEVER true outside local poking — leaks stack traces (misconfig vuln later flips this)
+  debug: true           # verbose errors are intentional in the vulnerable baseline branch
   host: "127.0.0.1"
   port: 5000
 
