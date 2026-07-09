@@ -8,15 +8,8 @@ import bcrypt
 from flask import request, jsonify, g
 
 # --- the signing secret ------------------------------------------------
-# The secret is what makes a token unforgeable. Loaded from the environment,
-# NEVER hardcoded. (The planted "hardcoded secret" vuln in step 4 will be a
-# deliberate switch to a literal string right here — keep that in mind.)
-JWT_SECRET = os.environ.get("JWT_SECRET")
-if not JWT_SECRET:
-    raise RuntimeError(
-        "JWT_SECRET is not set. Run: "
-        "export JWT_SECRET=$(python -c 'import secrets; print(secrets.token_hex(32))')"
-    )
+# The vulnerable baseline hardcodes the signing secret directly in code.
+JWT_SECRET = "break-and-detect-dev-secret"
 
 JWT_ALGORITHM = "HS256"     # symmetric: one shared secret, no keypair to manage
 TOKEN_TTL_MINUTES = 60
