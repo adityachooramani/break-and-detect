@@ -142,14 +142,10 @@ def delete_note(note_id):
 @require_auth
 def search_notes():
     q = request.args.get("q", "")
-    like = f"%{q}%"
     with closing(db_conn()) as conn:
         rows = conn.execute(
-            # Parameterized + scoped to owner. The planted SQLi will swap this
-            # for a string-concatenated query.
-            "SELECT id, title, content FROM notes "
-            "WHERE owner_id = ? AND (title LIKE ? OR content LIKE ?)",
-            (g.user_id, like, like),
+            f"SELECT id, title, content FROM notes "
+            f"WHERE owner_id = {g.user_id} AND (title LIKE '%{q}%' OR content LIKE '%{q}%')",
         ).fetchall()
     return jsonify([dict(r) for r in rows])
 
